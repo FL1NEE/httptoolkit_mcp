@@ -104,6 +104,21 @@ export class Adb {
     return (stdout + stderr).trim();
   }
 
+  /**
+   * Tunnel a device port back to the host over the adb channel
+   * (device 127.0.0.1:remotePort -> host 127.0.0.1:hostPort). This is the
+   * reliable way to reach the host from emulators behind their own NAT
+   * (e.g. MEmu, where the gateway IP is the emulator's virtual router, not
+   * the host), bypassing host firewall and NAT entirely.
+   */
+  async reverse(hostPort: number, remotePort = hostPort, serial?: string): Promise<void> {
+    await this.run(this.dev(serial, ["reverse", `tcp:${remotePort}`, `tcp:${hostPort}`]));
+  }
+
+  async removeReverse(serial?: string): Promise<void> {
+    await this.run(this.dev(serial, ["reverse", "--remove-all"])).catch(() => {});
+  }
+
   /** Detect how to get a root shell: already-root adbd, or via `su`. */
   private async detectRoot(serial?: string): Promise<RootMode> {
     const id = await this.run(this.dev(serial, ["shell", "id", "-u"])).catch(() => ({ stdout: "" }));

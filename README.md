@@ -73,12 +73,14 @@ npm run build
    локальные IP машины.
 2. `adb_connect` с пресетом (`nox` / `memu` / `bluestacks` / `ldplayer`) или
    `host:port`. Список - `list_emulator_presets`.
-3. Настройка устройства одним вызовом - на выбор:
-   - `adb_setup_transparent` (`hostIp`, `port`) - **рекомендуется**: ставит CA и
-     включает прозрачный iptables-перехват (ловит всё, без диалогов).
-   - `adb_setup` - то же, но через системный `http_proxy` (проще, но ловит
-     только приложения, уважающие proxy).
-   Перезагрузи эмулятор/приложение, если серт не подхватился.
+3. `adb_setup` (без `hostIp`) - **рекомендуется**: ставит CA и прокидывает прокси
+   через **adb reverse tunnel** (`127.0.0.1`). Работает на эмуляторах за NAT
+   (например MEmu, где gateway - виртуальный роутер эмулятора, а не хост), без
+   доступного LAN-IP и в обход firewall. Если хост виден в LAN - передай `hostIp`.
+   - Альтернатива: `adb_setup_transparent` (`hostIp`) - прозрачный iptables-перехват
+     (ловит всё, без диалогов; нужен доступный с устройства хост).
+   - `http_proxy` слетает при перезагрузке Android - перезапусти `adb_setup`.
+   - Перезагрузи приложение, если серт не подхватился.
 4. Гоняй трафик в эмуляторе -> `list_traffic`, `search_traffic`, `get_exchange`
    (с `bodyFormat: protobuf` для protobuf-API), `export_har`.
 5. Мокинг: `add_mock_rule`, `add_error_rule`, `add_delay_rule`,
@@ -155,7 +157,7 @@ node test/classify-smoke.mjs                  # классификатор: JSON
 node test/mcp-handshake.mjs                  # MCP stdio handshake + tools/list
 ```
 
-## Инструменты (33)
+## Инструменты (35)
 
 Прокси: `proxy_start`, `proxy_stop`, `proxy_status`, `get_ca_certificate`.
 Трафик: `list_traffic`, `search_traffic`, `get_exchange`, `get_ws_messages`,
@@ -165,6 +167,6 @@ Protobuf: `decode_protobuf`, `protobuf_diff`, `classify_blob`.
 `add_redirect_rule`, `add_modify_request_rule`, `list_rules`, `remove_rule`,
 `clear_rules`.
 ADB/устройство: `adb_devices`, `adb_connect`, `list_emulator_presets`,
-`adb_install_cert`, `adb_set_proxy`, `adb_clear_proxy`, `adb_setup`,
+`adb_reverse`, `adb_install_cert`, `adb_set_proxy`, `adb_clear_proxy`, `adb_setup`,
 `adb_enable_transparent`, `adb_disable_transparent`, `adb_transparent_status`,
 `adb_setup_transparent`.

@@ -566,6 +566,27 @@ export function registerTools(
   );
 
   server.registerTool(
+    "adb_reverse",
+    {
+      title: "adb reverse tunnel",
+      description:
+        "Tunnel the proxy port back to the device over the adb channel (device 127.0.0.1:<port> -> " +
+        "host). Use this for emulators behind their own NAT (e.g. MEmu, where the gateway is the " +
+        "emulator's virtual router, not the host) - then set the device proxy to 127.0.0.1:<port>. " +
+        "Bypasses host firewall/NAT.",
+      inputSchema: {
+        port: z.number().int().optional().describe("Proxy port (default 8000)."),
+        serial: z.string().optional(),
+      },
+    },
+    async ({ port, serial }) => {
+      const p = port ?? 8000;
+      await adb.reverse(p, p, serial);
+      return text(`Reverse tunnel active: device 127.0.0.1:${p} -> host :${p}. Set device proxy to 127.0.0.1:${p}.`);
+    },
+  );
+
+  server.registerTool(
     "adb_install_cert",
     {
       title: "Install CA (system store)",
@@ -615,9 +636,14 @@ export function registerTools(
     {
       title: "One-shot device setup",
       description:
-        "Convenience: start proxy (if needed), install the system CA, and set the device proxy in one step.",
+        "Convenience: start proxy (if needed), install the system CA, and set the device proxy in one step. " +
+        "By default uses an adb reverse tunnel (127.0.0.1), which works on NAT'd emulators like MEmu " +
+        "without needing a reachable host IP. Set hostIp to use a LAN IP instead.",
       inputSchema: {
-        hostIp: z.string().describe("Your machine's LAN IP reachable from the emulator."),
+        hostIp: z
+          .string()
+          .optional()
+          .describe("LAN IP reachable from the emulator. Omit to use the adb reverse tunnel (recommended)."),
         port: z.number().int().optional().describe("Proxy port (default 8000)."),
         serial: z.string().optional(),
       },
@@ -626,10 +652,19 @@ export function registerTools(
       const p = port ?? 8000;
       if (!proxy.running) await proxy.start(p);
       const cert = await adb.installSystemCert(proxy.caPath, serial);
-      await adb.setProxy(`${hostIp}:${p}`, serial);
+      let target: string;
+      if (hostIp) {
+        target = `${hostIp}:${p}`;
+      } else {
+        await adb.reverse(p, p, serial);
+        target = `127.0.0.1:${p}`;
+      }
+      await adb.setProxy(target, serial);
       return text(
-        `Proxy on ${hostIp}:${p}.\nCA installed at ${cert.remotePath} (${cert.method}).\nDevice proxy set.\n` +
-          "Reboot the emulator if existing apps don't pick up the new system cert.",
+        `Proxy on :${p}.\nCA installed at ${cert.remotePath} (${cert.method}).\nDevice proxy -> ${target}` +
+          `${hostIp ? "" : " (via adb reverse tunnel)"}.\n` +
+          "Note: http_proxy resets on reboot; re-run if you restart Android. " +
+          "Reboot apps if they don't pick up the new system cert.",
       );
     },
   );
