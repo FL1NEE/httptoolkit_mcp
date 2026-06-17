@@ -5,6 +5,4 @@ exports/
 *.log
 
 # local live tests (contain personal paths/IPs/serials)
-test/live-memu.mjs
-test/live-session.mjs
-test/live-protobuf.mjs
+test/live-*.mjs

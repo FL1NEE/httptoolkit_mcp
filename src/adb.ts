@@ -206,29 +206,52 @@ export class Adb {
 
   /**
    * Transparently redirect all device TCP :80/:443 to the proxy via iptables
-   * DNAT. Captures every app's traffic with no companion app and no VPN
-   * consent dialog - Mockttp identifies targets by Host header / TLS SNI.
+   * DNAT - captures every app's traffic on L3, including apps that ignore the
+   * system http_proxy (e.g. VK). No companion app, no VPN consent dialog;
+   * Mockttp identifies targets by Host header / TLS SNI.
+   *
+   * `target` is the DNAT destination. Use a loopback `127.0.0.1:<port>` paired
+   * with an adb reverse tunnel (recommended, works behind emulator NAT): this
+   * sets net.ipv4.conf.all.route_localnet=1 so the kernel will route to
+   * loopback, and opens the reverse tunnel so 127.0.0.1:<port> reaches the host
+   * proxy. A LAN `host:port` target is also accepted when the host is directly
+   * reachable from the device.
    */
-  async enableTransparent(hostPort: string, serial?: string): Promise<string> {
+  async enableTransparent(target: string, serial?: string): Promise<string> {
     const out: string[] = [];
+    const isLoopback = target.startsWith("127.") || target.startsWith("localhost:");
+    if (isLoopback) {
+      const port = Number(target.split(":")[1] || 8000);
+      await this.reverse(port, port, serial);
+      out.push(`reverse tunnel: device 127.0.0.1:${port} -> host`);
+      await this.rootRun("sysctl -w net.ipv4.conf.all.route_localnet=1", serial);
+      out.push("route_localnet=1");
+    }
     for (const dport of [80, 443]) {
       const r = await this.rootRun(
-        `iptables -t nat -A OUTPUT -p tcp --dport ${dport} -j DNAT --to-destination ${hostPort}`,
+        `iptables -t nat -A OUTPUT -p tcp --dport ${dport} -j DNAT --to-destination ${target}`,
         serial,
       );
-      out.push(`:${dport} -> ${hostPort} ${(r.stdout + r.stderr).trim() || "ok"}`);
+      out.push(`:${dport} -> ${target} ${(r.stdout + r.stderr).trim() || "ok"}`);
     }
     return out.join("\n");
   }
 
-  async disableTransparent(hostPort: string, serial?: string): Promise<string> {
+  async disableTransparent(target: string, serial?: string): Promise<string> {
     const out: string[] = [];
     for (const dport of [80, 443]) {
       await this.rootRun(
-        `iptables -t nat -D OUTPUT -p tcp --dport ${dport} -j DNAT --to-destination ${hostPort}`,
+        `iptables -t nat -D OUTPUT -p tcp --dport ${dport} -j DNAT --to-destination ${target}`,
         serial,
       ).catch(() => {});
-      out.push(`removed :${dport} -> ${hostPort}`);
+      out.push(`removed :${dport} -> ${target}`);
+    }
+    // Flush any stragglers and tear down the tunnel so we never leave the
+    // device routing to a dead proxy (which would break app networking).
+    await this.rootRun("iptables -t nat -F OUTPUT", serial).catch(() => {});
+    if (target.startsWith("127.") || target.startsWith("localhost:")) {
+      await this.removeReverse(serial);
+      out.push("reverse tunnel removed");
     }
     return out.join("\n");
   }

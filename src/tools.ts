@@ -677,26 +677,39 @@ export function registerTools(
       title: "Enable transparent capture",
       description:
         "Redirect ALL device TCP :80/:443 to the proxy via iptables DNAT - captures every app's " +
-        "traffic with no companion app and no VPN dialog. Requires root (Nox/MEmu out of the box).",
+        "traffic on L3, including apps that ignore the system proxy (e.g. VK). No companion app, no " +
+        "VPN dialog. Requires root (Nox/MEmu out of the box). Defaults to a loopback target via adb " +
+        "reverse tunnel (works behind emulator NAT); pass hostPort to DNAT to a reachable LAN host.",
       inputSchema: {
-        hostPort: z.string().describe("Proxy as <host-ip>:<port>, e.g. 10.126.193.90:8000"),
+        hostPort: z
+          .string()
+          .optional()
+          .describe("DNAT target <host-ip>:<port>. Omit to use 127.0.0.1:<port> + reverse tunnel."),
+        port: z.number().int().optional().describe("Proxy port for the loopback default (8000)."),
         serial: z.string().optional(),
       },
     },
-    async ({ hostPort, serial }) => text("iptables DNAT enabled:\n" + (await adb.enableTransparent(hostPort, serial))),
+    async ({ hostPort, port, serial }) => {
+      const target = hostPort ?? `127.0.0.1:${port ?? 8000}`;
+      return text("transparent capture enabled:\n" + (await adb.enableTransparent(target, serial)));
+    },
   );
 
   server.registerTool(
     "adb_disable_transparent",
     {
       title: "Disable transparent capture",
-      description: "Remove the iptables DNAT redirect rules.",
+      description: "Remove the iptables DNAT rules (and reverse tunnel if loopback). Flushes nat OUTPUT.",
       inputSchema: {
-        hostPort: z.string().describe("Same <host-ip>:<port> used when enabling."),
+        hostPort: z.string().optional().describe("Same target used when enabling. Omit for the loopback default."),
+        port: z.number().int().optional(),
         serial: z.string().optional(),
       },
     },
-    async ({ hostPort, serial }) => text(await adb.disableTransparent(hostPort, serial)),
+    async ({ hostPort, port, serial }) => {
+      const target = hostPort ?? `127.0.0.1:${port ?? 8000}`;
+      return text(await adb.disableTransparent(target, serial));
+    },
   );
 
   server.registerTool(
@@ -715,9 +728,11 @@ export function registerTools(
       title: "One-shot transparent setup",
       description:
         "Start proxy (if needed), install the system CA, and enable transparent iptables capture - " +
-        "the closest adb-only equivalent of HTTP Toolkit's VPN mode, with zero on-device dialogs.",
+        "the closest adb-only equivalent of HTTP Toolkit's VPN mode, with zero on-device dialogs. " +
+        "Catches apps that ignore the system proxy (e.g. VK). Defaults to loopback + reverse tunnel " +
+        "(works behind emulator NAT); pass hostIp for a directly reachable host.",
       inputSchema: {
-        hostIp: z.string().describe("Your machine's LAN IP reachable from the emulator."),
+        hostIp: z.string().optional().describe("LAN IP reachable from the emulator. Omit for loopback + tunnel."),
         port: z.number().int().optional().describe("Proxy port (default 8000)."),
         serial: z.string().optional(),
       },
@@ -726,11 +741,13 @@ export function registerTools(
       const p = port ?? 8000;
       if (!proxy.running) await proxy.start(p);
       const cert = await adb.installSystemCert(proxy.caPath, serial);
-      const rules = await adb.enableTransparent(`${hostIp}:${p}`, serial);
+      const target = hostIp ? `${hostIp}:${p}` : `127.0.0.1:${p}`;
+      const rules = await adb.enableTransparent(target, serial);
       return text(
-        `Proxy on ${hostIp}:${p}.\nCA installed at ${cert.remotePath} (${cert.method}).\n` +
-          `Transparent redirect:\n${rules}\n` +
-          "All :80/:443 traffic now flows through the proxy. Reboot apps if needed.",
+        `Proxy on :${p}.\nCA installed at ${cert.remotePath} (${cert.method}).\n` +
+          `Transparent redirect (${hostIp ? "LAN" : "loopback+tunnel"}):\n${rules}\n` +
+          "All :80/:443 now flows through the proxy. Run adb_disable_transparent when done " +
+          "(leaving rules up breaks networking). Reboot apps if needed.",
       );
     },
   );
