@@ -252,7 +252,18 @@ export class Adb {
 
   async clearProxy(serial?: string): Promise<void> {
     await this.run(this.dev(serial, ["shell", "settings", "put", "global", "http_proxy", ":0"]));
-    await this.run(this.dev(serial, ["shell", "settings", "delete", "global", "http_proxy"])).catch(() => {});
+    // Android mirrors the proxy into separate keys; leaving these set points
+    // proxy-aware apps at a now-dead host and breaks their networking.
+    const keys = [
+      "http_proxy",
+      "global_http_proxy_host",
+      "global_http_proxy_port",
+      "global_http_proxy_exclusion_list",
+      "global_proxy_pac_url",
+    ];
+    for (const k of keys) {
+      await this.run(this.dev(serial, ["shell", "settings", "delete", "global", k])).catch(() => {});
+    }
   }
 
   async getProxy(serial?: string): Promise<string> {
