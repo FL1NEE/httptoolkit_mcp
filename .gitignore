@@ -1,0 +1,8 @@
+node_modules/
+dist/
+certs/
+exports/
+*.log
+
+# local live test (contains personal paths/IPs)
+test/live-memu.mjs
